@@ -4,10 +4,34 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Products as Product;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 
 class ProductsController extends Controller
 {
+
+
+    public function garbage_collection()
+    {
+        $imageFolderFiles = File::files(public_path('images'));
+        $tables = DB::select('SELECT table_name FROM information_schema.columns WHERE column_name = ? AND table_schema = ?', ['image', env('DB_DATABASE')]);
+    
+        $dbImageFiles = [];
+        foreach ($tables as $table) {
+            $tableName = $table->table_name;
+            $imageData = DB::table($tableName)->pluck('image')->toArray();
+            $dbImageFiles = array_merge($dbImageFiles, $imageData);
+        }
+        foreach ($imageFolderFiles as $file) {
+            $fileName = pathinfo($file, PATHINFO_BASENAME); 
+            if (!in_array($fileName, $dbImageFiles)) {
+                File::delete($file);
+            }
+        }
+    }
+
     public function updateProduct(Request $request)
     {
         $product = Product::findOrFail($request->input('id'));
@@ -47,16 +71,44 @@ class ProductsController extends Controller
         return redirect()->back()->with('success', 'Ürün başarıyla silindi');
     }
 
+    //Refactor edilebilir bir fonksiyon 
     private function uploadImage($image)
     {
-        $imageName = time() . '.' . $image->extension();
-        $image->storeAs('public/images', $imageName);
+        // $imageName'i oluşturalım
+        $imageName = time() . '.' . $image->getClientOriginalExtension();
+
+        // Hedef klasörü belirleyelim
+        $destinationPath = public_path('images');
+
+        // Eğer klasör yoksa, oluşturulmasını sağlayalım
+        if (!file_exists($destinationPath)) {
+            mkdir($destinationPath, 0755, true);
+        }
+
+        // Resmi hedef klasöre taşıyalım
+        $image->move($destinationPath, $imageName);
+
+        // Dosya yolunu döndürelim
         return $imageName;
     }
 
+
+
     private function deleteProductImage($imageName)
     {
-        Storage::delete('public/images/' . $imageName);
+        $imagePath = 'public/images/' . $imageName;
+        if (Storage::exists($imagePath)) {
+            Storage::delete($imagePath);
+        }
+    }
+
+    public function bonusUpgrade(Request $request)
+    {
+        $product = Product::findOrFail($request->input('id'));
+        $product->bonus = $request->input('bonus');
+        $product->save();
+
+        return redirect()->back()->with('success', 'Bonus Güncellendi');
     }
 
     private function getProductData(Request $request)
